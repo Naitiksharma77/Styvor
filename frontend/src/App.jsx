@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const API_URL = "http://localhost:5000/api";
+const API = "https://styvor.onrender.com/api";
 const COUNTRY_STORAGE_KEY = "styvor_country";
 
 function getCountryCode(country) {

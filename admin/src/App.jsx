@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const API = "http://localhost:5000/api";
+const API = "https://styvor.onrender.com/api";
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const MAX_IMAGES = 4;
 const ALLOWED_IMAGE_TYPES = [

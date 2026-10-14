@@ -1,0 +1,28 @@
+{
+  "name": "styvor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "build": "npm run build --workspace=frontend",
+    "lint": "npm run lint --workspace=frontend",
+    "start": "node server.js"
+  },
+  "workspaces": [
+    "frontend",
+    "admin",
+    "backend"
+  ],
+  "dependencies": {
+    "@supabase/supabase-js": "^2.117.3",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.6",
+    "express": "^5.2.1",
+    "multer": "^2.4.0",
+    "razorpay": "^2.9.8"
+  },
+  "devDependencies": {
+    "vite": "^8.3.0"
+  }
+}

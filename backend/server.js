@@ -7,6 +7,7 @@ const countriesRoutes = require("./routes/countries");
 const shippingRoutes = require("./routes/shipping");
 const paymentMethodsRoutes = require("./routes/paymentMethods");
 const paymentsRoutes = require("./routes/payments");
+const ordersRoutes = require("./routes/orders");
 
 const app = express();
 
@@ -25,9 +26,10 @@ app.use("/api/countries", countriesRoutes);
 app.use("/api/shipping", shippingRoutes);
 app.use("/api/payment-methods", paymentMethodsRoutes);
 app.use("/api/payments", paymentsRoutes);
+app.use("/api/orders", ordersRoutes);
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
 });

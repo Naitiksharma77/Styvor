@@ -1,0 +1,5 @@
+{
+  "name": "Styvor",
+  "description": "Everyday essentials elevated. Luxury iPhone store and catalogue admin studio.",
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

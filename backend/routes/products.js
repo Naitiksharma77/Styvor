@@ -30,6 +30,21 @@ const crypto = require("crypto");
 
 const router = express.Router();
 
+const DEFAULT_RATES_TO_INR = {
+  INR: 1.0,
+  USD: 0.0116,
+  EUR: 0.0108,
+  GBP: 0.0091,
+  CAD: 0.0162,
+  AUD: 0.0182,
+  JPY: 1.78,
+  ARS: 12.2,
+  BRL: 0.068,
+  COP: 49.5,
+  MXN: 0.235,
+  PLN: 0.046,
+};
+
 async function getCountry(isoCode = "IN") {
   const { data, error } = await supabase
     .from("countries")
@@ -51,7 +66,12 @@ async function getCountry(isoCode = "IN") {
   if (currencyError) throw currencyError;
   if (!currency) throw new Error("Active currency not found");
 
-  return { country: data, currency };
+  const enrichedCurrency = {
+    ...currency,
+    rate_to_inr: DEFAULT_RATES_TO_INR[currency.code] || 1.0,
+  };
+
+  return { country: data, currency: enrichedCurrency };
 }
 
 function makeSlug(value) {
@@ -108,6 +128,7 @@ router.get("/", async (req, res) => {
 
     let variants = [];
     let prices = [];
+    let baseInrPrices = [];
 
     if (productIds.length) {
       const variantResult = await supabase
@@ -127,6 +148,22 @@ router.get("/", async (req, res) => {
 
       if (priceResult.error) throw priceResult.error;
       prices = priceResult.data || [];
+
+      // Fetch base INR prices as authoritative fallback
+      const { data: inCountry } = await supabase
+        .from("countries")
+        .select("id")
+        .eq("iso_code", "IN")
+        .maybeSingle();
+      const inCountryId = inCountry?.id || "cnt_in";
+
+      const { data: inrPrices } = await supabase
+        .from("product_prices")
+        .select("*")
+        .eq("country_id", inCountryId)
+        .in("product_id", productIds);
+
+      baseInrPrices = inrPrices || [];
     }
 
     const { data: categories, error: categoryError } = await supabase
@@ -136,6 +173,9 @@ router.get("/", async (req, res) => {
 
     if (categoryError) throw categoryError;
 
+    const rate = Number(currency.rate_to_inr || 1.0);
+    const decimals = Number(currency.decimal_places ?? 2);
+
     const result = (products || []).map((product) => ({
       ...product,
       category: (categories || []).find(
@@ -144,19 +184,37 @@ router.get("/", async (req, res) => {
       product_variants: variants
         .filter((v) => v.product_id === product.id)
         .map((variant) => {
-          const price = prices.find(
-            (p) =>
-              p.product_id === product.id &&
-              p.variant_id === variant.id
+          const specific = prices.find(
+            (p) => p.product_id === product.id && p.variant_id === variant.id
           );
+          const inrBase = baseInrPrices.find(
+            (p) => p.product_id === product.id && p.variant_id === variant.id
+          );
+
+          const inrPrice = Number(inrBase?.price ?? variant.price ?? 0);
+          const inrCompare = inrBase?.compare_at_price != null ? Number(inrBase.compare_at_price) : null;
+
+          let finalPrice = specific?.price != null ? Number(specific.price) : (inrPrice * rate);
+          let finalCompare = specific?.compare_at_price != null ? Number(specific.compare_at_price) : (inrCompare != null ? inrCompare * rate : null);
+
+          if (decimals === 0) {
+            finalPrice = Math.round(finalPrice);
+            if (finalCompare != null) finalCompare = Math.round(finalCompare);
+          } else {
+            finalPrice = Math.round(finalPrice * 100) / 100;
+            if (finalCompare != null) finalCompare = Math.round(finalCompare * 100) / 100;
+          }
 
           return {
             ...variant,
-            price: price?.price ?? null,
-            compare_at_price: price?.compare_at_price ?? null,
+            price: finalPrice,
+            compare_at_price: finalCompare,
+            price_inr: inrPrice,
+            compare_at_price_inr: inrCompare,
             currency: currency.code,
             currency_symbol: currency.symbol,
-            decimal_places: currency.decimal_places,
+            decimal_places: decimals,
+            exchange_rate: rate,
           };
         }),
     }));

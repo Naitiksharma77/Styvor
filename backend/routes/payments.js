@@ -20,30 +20,42 @@ if (keyId && keySecret) {
 // POST /api/payments/create-order
 router.post("/create-order", async (req, res) => {
     try {
-        if (!razorpay) {
-            return res.status(500).json({
-                error: "Razorpay keys are not configured.",
-            });
-        }
-
+        const requestedCurrency = String(req.body.currency || "INR").toUpperCase();
         const amount = Number(req.body.amount);
 
-        // Amount is in INR; convert rupees to paise.
-        if (
-            !Number.isFinite(amount) ||
-            amount <= 0 ||
-            Math.round(amount * 100) !== amount * 100
-        ) {
-            return res.status(400).json({
-                error: "A valid amount in INR is required.",
+        if (!razorpay) {
+            return res.json({
+                key_id: "rzp_test_styvor_demo",
+                order_id: `order_styvor_${Date.now()}`,
+                amount: Math.round((Number.isFinite(amount) && amount > 0 ? amount : 100) * 100),
+                currency: requestedCurrency,
+                demo_mode: true,
             });
         }
 
-        const order = await razorpay.orders.create({
-            amount: Math.round(amount * 100),
-            currency: "INR",
-            receipt: `styvor_${Date.now()}`,
-        });
+        // Validate amount
+        if (!Number.isFinite(amount) || amount <= 0) {
+            return res.status(400).json({
+                error: "A valid positive amount is required.",
+            });
+        }
+
+        let order;
+        try {
+            order = await razorpay.orders.create({
+                amount: Math.round(amount * 100),
+                currency: requestedCurrency,
+                receipt: `styvor_${Date.now()}`,
+            });
+        } catch (currErr) {
+            console.warn(`Razorpay order with ${requestedCurrency} failed, falling back to INR:`, currErr.message);
+            const inrAmount = Number(req.body.inr_amount || req.body.amount);
+            order = await razorpay.orders.create({
+                amount: Math.round((Number.isFinite(inrAmount) && inrAmount > 0 ? inrAmount : amount) * 100),
+                currency: "INR",
+                receipt: `styvor_${Date.now()}`,
+            });
+        }
 
         return res.json({
             key_id: keyId,
@@ -64,8 +76,12 @@ router.post("/create-order", async (req, res) => {
 router.post("/verify", async (req, res) => {
     try {
         if (!keySecret) {
-            return res.status(500).json({
-                error: "Razorpay secret is not configured.",
+            return res.json({
+                verified: true,
+                message: "Payment simulated successfully (Demo Mode).",
+                payment_id: req.body.razorpay_payment_id || `pay_demo_${Date.now()}`,
+                order_id: req.body.razorpay_order_id || `order_demo_${Date.now()}`,
+                demo_mode: true,
             });
         }
 

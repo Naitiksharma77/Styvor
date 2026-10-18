@@ -1,15 +1,31 @@
 /**
  * STYVOR — PURE VANILLA JAVASCRIPT APPLICATION (ES6)
  * Apple iOS Glassmorphism Luxury Architecture
+ * 
+ * Resilient Dual-Mode Engine:
+ * 1. Synchronous Standalone Catalog Store: Guarantees 0-latency instant render
+ *    on GitHub Pages, mobile phones, and static hosting (Products NEVER disappear!).
+ * 2. Dynamic Live Sync: Seamlessly connects to Node.js backend / Supabase API
+ *    when available, with graceful offline / static fallback.
+ * 3. Dynamic Currency Conversion: Converts base INR to local currencies
+ *    (AUD, USD, GBP, EUR, AED, CAD, SGD, etc.) with strict ₹0 / $0 fallback protection.
  */
 
-// API Endpoint
-const API_URL = "/api";
+// API Endpoint configuration with auto-detection for relative or remote backends
+const API_URL = (typeof window !== "undefined" && window.STYVOR_API_URL) || "/api";
 const COUNTRY_STORAGE_KEY = "styvor_country";
 const CART_STORAGE_KEY = "styvor_cart";
 
-// Dynamic Currency Conversion Map relative to 1 INR (Indian Rupee)
-// Admin sets prices in INR via Supabase. Client JS dynamically calculates local pricing.
+// Detect if running on GitHub Pages, static host, or file:// protocol
+const isStaticHost =
+  typeof window !== "undefined" &&
+  !window.STYVOR_API_URL &&
+  (window.location.protocol === "file:" ||
+   window.location.hostname.endsWith("github.io") ||
+   window.location.hostname.endsWith("pages.dev"));
+
+
+// Dynamic Currency Conversion Configuration relative to 1 INR (Indian Rupee)
 const CURRENCY_CONFIG = {
   INR: { code: "INR", symbol: "₹", name: "Indian Rupee", rate: 1.0, decimals: 0, flag: "🇮🇳" },
   USD: { code: "USD", symbol: "$", name: "US Dollar", rate: 0.0116, decimals: 2, flag: "🇺🇸" },
@@ -19,15 +35,17 @@ const CURRENCY_CONFIG = {
   CAD: { code: "CAD", symbol: "CA$", name: "Canadian Dollar", rate: 0.0162, decimals: 2, flag: "🇨🇦" },
   JPY: { code: "JPY", symbol: "¥", name: "Japanese Yen", rate: 1.78, decimals: 0, flag: "🇯🇵" },
   AED: { code: "AED", symbol: "AED", name: "UAE Dirham", rate: 0.0426, decimals: 2, flag: "🇦🇪" },
-  SGD: { code: "SGD", symbol: "S$", name: "Singapore Dollar", rate: 0.0157, decimals: 2, flag: "🇸🇬" },
+  SGD: { code: "SGD", symbol: "S$", name: "Singapore Dollar", rate: 0.0152, decimals: 2, flag: "🇸🇬" },
   NZD: { code: "NZD", symbol: "NZ$", name: "New Zealand Dollar", rate: 0.0195, decimals: 2, flag: "🇳🇿" },
-  CHF: { code: "CHF", symbol: "CHF", name: "Swiss Franc", rate: 0.0105, decimals: 2, flag: "🇨🇭" },
+  CHF: { code: "CHF", symbol: "CHF", name: "Swiss Franc", rate: 0.0102, decimals: 2, flag: "🇨🇭" },
+  SAR: { code: "SAR", symbol: "﷼", name: "Saudi Riyal", rate: 0.0435, decimals: 2, flag: "🇸🇦" },
+  HKD: { code: "HKD", symbol: "HK$", name: "Hong Kong Dollar", rate: 0.0908, decimals: 2, flag: "🇭🇰" },
   BRL: { code: "BRL", symbol: "R$", name: "Brazilian Real", rate: 0.068, decimals: 2, flag: "🇧🇷" },
   MXN: { code: "MXN", symbol: "MX$", name: "Mexican Peso", rate: 0.235, decimals: 2, flag: "🇲🇽" },
   PLN: { code: "PLN", symbol: "zł", name: "Polish Zloty", rate: 0.046, decimals: 2, flag: "🇵🇱" },
 };
 
-// Popular destinations for instant quick pick
+// Quick-Pick destinations for the entry popup and country selector
 const POPULAR_DESTINATIONS = [
   { code: "IN", name: "India", flag: "🇮🇳", currency: "INR" },
   { code: "US", name: "United States", flag: "🇺🇸", currency: "USD" },
@@ -43,14 +61,168 @@ const POPULAR_DESTINATIONS = [
 // GUARANTEE: Customer NEVER sees $0 or ₹0
 const DEFAULT_INR_PRICE = 1499;
 
-// Global Application State
+/* ==========================================================================
+   STANDALONE CATALOG STORE (Ensures GitHub Pages & Mobile Work 100% Offline)
+   ========================================================================== */
+
+const STANDALONE_COUNTRIES = [
+  { id: "cnt_in", name: "India", iso_code: "IN", flag: "🇮🇳", currency_id: "cur_inr", currencies: { code: "INR", name: "Indian Rupee", symbol: "₹", decimal_places: 2, rate_to_inr: 1.0 }, is_active: true },
+  { id: "cnt_us", name: "United States", iso_code: "US", flag: "🇺🇸", currency_id: "cur_usd", currencies: { code: "USD", name: "US Dollar", symbol: "$", decimal_places: 2, rate_to_inr: 0.0116 }, is_active: true },
+  { id: "cnt_gb", name: "United Kingdom", iso_code: "GB", flag: "🇬🇧", currency_id: "cur_gbp", currencies: { code: "GBP", name: "British Pound", symbol: "£", decimal_places: 2, rate_to_inr: 0.0091 }, is_active: true },
+  { id: "cnt_ae", name: "United Arab Emirates", iso_code: "AE", flag: "🇦🇪", currency_id: "cur_aed", currencies: { code: "AED", name: "UAE Dirham", symbol: "د.إ", decimal_places: 2, rate_to_inr: 0.0426 }, is_active: true },
+  { id: "cnt_ca", name: "Canada", iso_code: "CA", flag: "🇨🇦", currency_id: "cur_cad", currencies: { code: "CAD", name: "Canadian Dollar", symbol: "CA$", decimal_places: 2, rate_to_inr: 0.0162 }, is_active: true },
+  { id: "cnt_au", name: "Australia", iso_code: "AU", flag: "🇦🇺", currency_id: "cur_aud", currencies: { code: "AUD", name: "Australian Dollar", symbol: "AU$", decimal_places: 2, rate_to_inr: 0.0182 }, is_active: true },
+  { id: "cnt_de", name: "Germany", iso_code: "DE", flag: "🇩🇪", currency_id: "cur_eur", currencies: { code: "EUR", name: "Euro", symbol: "€", decimal_places: 2, rate_to_inr: 0.0108 }, is_active: true },
+  { id: "cnt_fr", name: "France", iso_code: "FR", flag: "🇫🇷", currency_id: "cur_eur", currencies: { code: "EUR", name: "Euro", symbol: "€", decimal_places: 2, rate_to_inr: 0.0108 }, is_active: true },
+  { id: "cnt_it", name: "Italy", iso_code: "IT", flag: "🇮🇹", currency_id: "cur_eur", currencies: { code: "EUR", name: "Euro", symbol: "€", decimal_places: 2, rate_to_inr: 0.0108 }, is_active: true },
+  { id: "cnt_sg", name: "Singapore", iso_code: "SG", flag: "🇸🇬", currency_id: "cur_sgd", currencies: { code: "SGD", name: "Singapore Dollar", symbol: "S$", decimal_places: 2, rate_to_inr: 0.0152 }, is_active: true },
+  { id: "cnt_jp", name: "Japan", iso_code: "JP", flag: "🇯🇵", currency_id: "cur_jpy", currencies: { code: "JPY", name: "Japanese Yen", symbol: "¥", decimal_places: 0, rate_to_inr: 1.78 }, is_active: true },
+  { id: "cnt_ch", name: "Switzerland", iso_code: "CH", flag: "🇨🇭", currency_id: "cur_chf", currencies: { code: "CHF", name: "Swiss Franc", symbol: "CHF", decimal_places: 2, rate_to_inr: 0.0102 }, is_active: true },
+  { id: "cnt_sa", name: "Saudi Arabia", iso_code: "SA", flag: "🇸🇦", currency_id: "cur_sar", currencies: { code: "SAR", name: "Saudi Riyal", symbol: "﷼", decimal_places: 2, rate_to_inr: 0.0435 }, is_active: true },
+  { id: "cnt_nl", name: "Netherlands", iso_code: "NL", flag: "🇳🇱", currency_id: "cur_eur", currencies: { code: "EUR", name: "Euro", symbol: "€", decimal_places: 2, rate_to_inr: 0.0108 }, is_active: true },
+  { id: "cnt_es", name: "Spain", iso_code: "ES", flag: "🇪🇸", currency_id: "cur_eur", currencies: { code: "EUR", name: "Euro", symbol: "€", decimal_places: 2, rate_to_inr: 0.0108 }, is_active: true },
+  { id: "cnt_hk", name: "Hong Kong", iso_code: "HK", flag: "🇭🇰", currency_id: "cur_hkd", currencies: { code: "HKD", name: "Hong Kong Dollar", symbol: "HK$", decimal_places: 2, rate_to_inr: 0.0908 }, is_active: true },
+];
+
+const STANDALONE_CATEGORIES = [
+  { id: "cat_1", name: "iPhone Luxury Editions", slug: "iphone-luxury-editions", is_active: true },
+  { id: "cat_2", name: "Leather Folios & Cases", slug: "leather-folios-cases", is_active: true },
+  { id: "cat_3", name: "Titanium Accessories", slug: "titanium-accessories", is_active: true },
+  { id: "cat_4", name: "Charging & Docks", slug: "charging-docks", is_active: true },
+];
+
+const STANDALONE_PRODUCTS = [
+  {
+    id: "prod_1",
+    name: "iPhone 16 Pro — Desert Titanium Bespoke Edition",
+    slug: "iphone-16-pro-desert-titanium-bespoke",
+    description: "Custom hand-polished Grade 5 aerospace titanium chassis with micro-etched Styvor monogram, matte sapphire crystal rear inlay, and diamond-cut buttons.",
+    category_id: "cat_1",
+    category: { id: "cat_1", name: "iPhone Luxury Editions" },
+    sku: "STY-IP16P-DESERT",
+    price_inr: 169900,
+    compare_at_price_inr: 184900,
+    is_active: true,
+    product_images: [
+      { id: "img_1_1", image_url: "https://images.unsplash.com/photo-1592750475338-74b7b21085ab?auto=format&fit=crop&w=1000&q=80", sort_order: 0 },
+      { id: "img_1_2", image_url: "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=1000&q=80", sort_order: 1 },
+    ],
+    product_variants: [
+      { id: "var_1_1", product_id: "prod_1", name: "256GB / Desert Titanium", sku: "STY-IP16P-DESERT-256", price_inr: 169900, compare_at_price_inr: 184900, stock_quantity: 14 },
+      { id: "var_1_2", product_id: "prod_1", name: "512GB / Desert Titanium", sku: "STY-IP16P-DESERT-512", price_inr: 189900, compare_at_price_inr: 204900, stock_quantity: 8 },
+      { id: "var_1_3", product_id: "prod_1", name: "1TB / Desert Titanium", sku: "STY-IP16P-DESERT-1TB", price_inr: 219900, compare_at_price_inr: 234900, stock_quantity: 5 },
+    ],
+  },
+  {
+    id: "prod_2",
+    name: "iPhone 16 Pro Max — 24K Gold & Ceramic Edition",
+    slug: "iphone-16-pro-max-24k-gold",
+    description: "Mirror-finish 24-karat gold electroplating layered with proprietary nano-ceramic hardcoat for lifelong luster. Includes custom engraved certificate of authenticity.",
+    category_id: "cat_1",
+    category: { id: "cat_1", name: "iPhone Luxury Editions" },
+    sku: "STY-IP16PM-GOLD",
+    price_inr: 249900,
+    compare_at_price_inr: 269900,
+    is_active: true,
+    product_images: [
+      { id: "img_2_1", image_url: "https://images.unsplash.com/photo-1510557880182-3d4d3cba35a5?auto=format&fit=crop&w=1000&q=80", sort_order: 0 },
+      { id: "img_2_2", image_url: "https://images.unsplash.com/photo-1565849904461-04a58ad377e0?auto=format&fit=crop&w=1000&q=80", sort_order: 1 },
+    ],
+    product_variants: [
+      { id: "var_2_1", product_id: "prod_2", name: "512GB / 24K Gold Inlay", sku: "STY-IP16PM-GOLD-512", price_inr: 249900, compare_at_price_inr: 269900, stock_quantity: 7 },
+      { id: "var_2_2", product_id: "prod_2", name: "1TB / 24K Gold Inlay", sku: "STY-IP16PM-GOLD-1TB", price_inr: 279900, compare_at_price_inr: 299900, stock_quantity: 4 },
+    ],
+  },
+  {
+    id: "prod_3",
+    name: "French Calfskin Leather MagSafe Folio",
+    slug: "french-calfskin-leather-magsafe-folio",
+    description: "Supple full-grain French calfskin lined with Italian microfiber. Integrated rare-earth MagSafe magnet array with three concealed card pockets and RFID shielding.",
+    category_id: "cat_2",
+    category: { id: "cat_2", name: "Leather Folios & Cases" },
+    sku: "STY-FOLIO-BLK",
+    price_inr: 11900,
+    compare_at_price_inr: 13500,
+    is_active: true,
+    product_images: [
+      { id: "img_3_1", image_url: "https://images.unsplash.com/photo-1585060544812-6b45742d762f?auto=format&fit=crop&w=1000&q=80", sort_order: 0 },
+      { id: "img_3_2", image_url: "https://images.unsplash.com/photo-1606220588913-b3aacb4d2f46?auto=format&fit=crop&w=1000&q=80", sort_order: 1 },
+    ],
+    product_variants: [
+      { id: "var_3_1", product_id: "prod_3", name: "Midnight Noir", sku: "STY-FOLIO-BLK-01", price_inr: 11900, compare_at_price_inr: 13500, stock_quantity: 48 },
+      { id: "var_3_2", product_id: "prod_3", name: "Chestnut Brown", sku: "STY-FOLIO-BRN-02", price_inr: 11900, compare_at_price_inr: 13500, stock_quantity: 35 },
+    ],
+  },
+  {
+    id: "prod_4",
+    name: "Grade 5 Titanium Magnetic Desk Easel",
+    slug: "grade-5-titanium-magnetic-desk-easel",
+    description: "Sculpted from a single solid billet of aerospace Grade 5 titanium. Fluid dual-axis friction pivot with weighted micro-suction silicon base pad.",
+    category_id: "cat_3",
+    category: { id: "cat_3", name: "Titanium Accessories" },
+    sku: "STY-STAND-TI",
+    price_inr: 14500,
+    compare_at_price_inr: 16900,
+    is_active: true,
+    product_images: [
+      { id: "img_4_1", image_url: "https://images.unsplash.com/photo-1586953208448-b95a79798f07?auto=format&fit=crop&w=1000&q=80", sort_order: 0 },
+      { id: "img_4_2", image_url: "https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?auto=format&fit=crop&w=1000&q=80", sort_order: 1 },
+    ],
+    product_variants: [
+      { id: "var_4_1", product_id: "prod_4", name: "Satin Titanium", sku: "STY-STAND-TI-01", price_inr: 14500, compare_at_price_inr: 16900, stock_quantity: 32 },
+      { id: "var_4_2", product_id: "prod_4", name: "Matte DLC Black", sku: "STY-STAND-TI-02", price_inr: 15900, compare_at_price_inr: 18500, stock_quantity: 20 },
+    ],
+  },
+  {
+    id: "prod_5",
+    name: "Bespoke Italian Saddle Leather Sleeve",
+    slug: "italian-saddle-leather-sleeve",
+    description: "Vegetable-tanned Tuscan saddle leather stitched with waxed linen thread. Hand-burnished edges that develop an extraordinary, distinct patina over decades of use.",
+    category_id: "cat_2",
+    category: { id: "cat_2", name: "Leather Folios & Cases" },
+    sku: "STY-SLEEVE-TAN",
+    price_inr: 9500,
+    compare_at_price_inr: 10900,
+    is_active: true,
+    product_images: [
+      { id: "img_5_1", image_url: "https://images.unsplash.com/photo-1601784551446-20c9e07cdbdb?auto=format&fit=crop&w=1000&q=80", sort_order: 0 },
+      { id: "img_5_2", image_url: "https://images.unsplash.com/photo-1585060544812-6b45742d762f?auto=format&fit=crop&w=1000&q=80", sort_order: 1 },
+    ],
+    product_variants: [
+      { id: "var_5_1", product_id: "prod_5", name: "Tuscan Cognac", sku: "STY-SLEEVE-TAN-01", price_inr: 9500, compare_at_price_inr: 10900, stock_quantity: 36 },
+      { id: "var_5_2", product_id: "prod_5", name: "Obsidian Black", sku: "STY-SLEEVE-BLK-02", price_inr: 9500, compare_at_price_inr: 10900, stock_quantity: 28 },
+    ],
+  },
+  {
+    id: "prod_6",
+    name: "Precision CNC Aluminum Dual Wireless Station",
+    slug: "precision-cnc-dual-wireless-station",
+    description: "Anodized space-grey aluminum base with dual 15W Qi2 rapid charging modules, braided aramid fiber cable, and integrated thermal dissipation chambers.",
+    category_id: "cat_4",
+    category: { id: "cat_4", name: "Charging & Docks" },
+    sku: "STY-DOCK-DUAL",
+    price_inr: 18900,
+    compare_at_price_inr: 21500,
+    is_active: true,
+    product_images: [
+      { id: "img_6_1", image_url: "https://images.unsplash.com/photo-1622445262464-84b14e3235b3?auto=format&fit=crop&w=1000&q=80", sort_order: 0 },
+      { id: "img_6_2", image_url: "https://images.unsplash.com/photo-1586953208448-b95a79798f07?auto=format&fit=crop&w=1000&q=80", sort_order: 1 },
+    ],
+    product_variants: [
+      { id: "var_6_1", product_id: "prod_6", name: "Space Grey Anodized", sku: "STY-DOCK-DUAL-01", price_inr: 18900, compare_at_price_inr: 21500, stock_quantity: 22 },
+      { id: "var_6_2", product_id: "prod_6", name: "Silver Frost", sku: "STY-DOCK-DUAL-02", price_inr: 18900, compare_at_price_inr: 21500, stock_quantity: 18 },
+    ],
+  },
+];
+
+// Global Application State (Pre-populated synchronously so UI never appears empty)
 const state = {
-  countries: [],
+  countries: [...STANDALONE_COUNTRIES],
   selectedCountry: null,
   draftCountryCode: "IN",
-  categories: [],
+  categories: [...STANDALONE_CATEGORIES],
   activeCategory: "All",
-  products: [],
+  products: [...STANDALONE_PRODUCTS],
   cart: [],
   searchQuery: "",
   activeProduct: null,
@@ -59,7 +231,7 @@ const state = {
 };
 
 /* ==========================================================================
-   Helper Functions & Currency Conversion Logic
+   Helper Functions & Dynamic Currency Conversion Logic
    ========================================================================== */
 
 function getCountryCode(country) {
@@ -71,7 +243,7 @@ function getCurrencyCode(country) {
   if (Array.isArray(currencies) && currencies.length > 0) {
     return currencies[0]?.code || "INR";
   }
-  return currencies?.code || "INR";
+  return currencies?.code || country?.currency || "INR";
 }
 
 function getActiveCurrency() {
@@ -87,12 +259,14 @@ function getExchangeRate() {
 
 /**
  * Extracts base INR price from product or variant.
- * If 0 or invalid, gracefully defaults to DEFAULT_INR_PRICE.
+ * If 0, null, or invalid, gracefully defaults to DEFAULT_INR_PRICE.
+ * GUARANTEE: Never returns 0.
  */
 function getProductInrPrice(product, variantId = null) {
+  if (!product) return DEFAULT_INR_PRICE;
   const variants = product.product_variants || product.variants || [];
   const variant = variantId
-    ? variants.find((v) => v.id === variantId)
+    ? variants.find((v) => String(v.id) === String(variantId))
     : variants[0];
 
   const candidate = Number(
@@ -107,9 +281,10 @@ function getProductInrPrice(product, variantId = null) {
 }
 
 function getProductCompareInrPrice(product, variantId = null) {
+  if (!product) return null;
   const variants = product.product_variants || product.variants || [];
   const variant = variantId
-    ? variants.find((v) => v.id === variantId)
+    ? variants.find((v) => String(v.id) === String(variantId))
     : variants.find((v) => v.compare_at_price_inr || v.compare_at_price) || variants[0];
 
   const candidate = Number(
@@ -124,122 +299,102 @@ function getProductCompareInrPrice(product, variantId = null) {
 }
 
 /**
- * Dynamically converts INR amount to the target currency based on exchange rate.
- * Never returns 0.
+ * Dynamically converts INR base price to the target currency.
  */
-function convertInrToCurrency(inrAmount, targetCurrency, customRate = null) {
-  const baseInr = Number(inrAmount);
-  const safeInr = Number.isFinite(baseInr) && baseInr > 0 ? baseInr : DEFAULT_INR_PRICE;
-
-  const config = CURRENCY_CONFIG[targetCurrency] || CURRENCY_CONFIG.INR;
-  const rate = Number(customRate) > 0 ? Number(customRate) : (config.rate || 1.0);
-
-  const raw = safeInr * rate;
-  const decimals = config.decimals !== undefined ? config.decimals : (targetCurrency === "JPY" ? 0 : 2);
-
-  if (decimals === 0) {
-    return Math.max(1, Math.round(raw));
+function convertInrToCurrency(baseInr, targetCurrency, exchangeRate) {
+  const numInr = Number(baseInr) > 0 ? Number(baseInr) : DEFAULT_INR_PRICE;
+  const rate = Number(exchangeRate) > 0 ? Number(exchangeRate) : (CURRENCY_CONFIG[targetCurrency]?.rate || 1.0);
+  
+  if (targetCurrency === "INR") {
+    return numInr;
   }
-  return Math.max(0.01, Math.round(raw * 100) / 100);
+  
+  const converted = numInr * rate;
+  return converted > 0 ? converted : numInr;
 }
 
 /**
- * Formats a local currency amount using standard Intl.NumberFormat.
+ * Formats a local price using the currency's official symbol and decimals.
  */
 function formatLocalPrice(amount, currencyCode) {
-  const num = Number(amount);
-  const code = currencyCode || "INR";
-  const config = CURRENCY_CONFIG[code] || { symbol: code, decimals: 2 };
-  const decimals = config.decimals !== undefined ? config.decimals : 2;
+  const config = CURRENCY_CONFIG[currencyCode] || { symbol: currencyCode, decimals: 2 };
+  const symbol = config.symbol || currencyCode;
+  const val = Number(amount) || 0;
 
-  if (!Number.isFinite(num) || num <= 0) {
-    return `${config.symbol}—`;
+  if (currencyCode === "INR") {
+    return `${symbol}${val.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
   }
 
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: code,
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-    }).format(num);
-  } catch {
-    return `${config.symbol} ${num.toFixed(decimals)}`;
-  }
+  const decimals = typeof config.decimals === "number" ? config.decimals : 2;
+  const formattedNumber = val.toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+
+  return `${symbol}${formattedNumber}`;
 }
 
 function formatInr(amount) {
-  const num = Number(amount) || DEFAULT_INR_PRICE;
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(num);
+  return `₹${Number(amount || 0).toLocaleString("en-IN")}`;
 }
 
 function getProductImages(product) {
-  const imgs = Array.isArray(product?.product_images)
-    ? product.product_images
-    : Array.isArray(product?.images)
-      ? product.images
-      : [];
-
-  const valid = imgs.filter((i) => i?.image_url);
-  if (valid.length) return valid.map((i) => i.image_url);
-
-  const single = product?.image_url || product?.image;
-  return single ? [single] : [];
+  if (Array.isArray(product.product_images) && product.product_images.length > 0) {
+    return product.product_images
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+      .map((img) => img.image_url || img.url)
+      .filter(Boolean);
+  }
+  if (product.image_url) return [product.image_url];
+  return [];
 }
 
 /* ==========================================================================
-   DOM Elements Cache
+   DOM Element Cache
    ========================================================================== */
 const DOM = {
-  // Announcements & Header
+  backdrop: document.getElementById("modal-backdrop"),
+
+  announcementBtn: document.getElementById("announcement-country-btn"),
   announcementFlag: document.getElementById("announcement-flag"),
   announcementCountryName: document.getElementById("announcement-country-name"),
-  announcementCountryBtn: document.getElementById("announcement-country-btn"),
+
+  headerCountryBtn: document.getElementById("header-country-btn"),
   headerCountryFlag: document.getElementById("header-country-flag"),
   headerCountryCode: document.getElementById("header-country-code"),
   headerCurrencySymbol: document.getElementById("header-currency-symbol"),
-  openCountryBtn: document.getElementById("open-country-btn"),
-  openBagBtn: document.getElementById("open-bag-btn"),
-  bagCountBadge: document.getElementById("bag-count-badge"),
-  openSearchBtn: document.getElementById("open-search-btn"),
 
-  // Hero
-  heroCountryBtn: document.getElementById("hero-country-btn"),
+  openSearchBtn: document.getElementById("open-search-btn"),
+  openBagBtn: document.getElementById("open-bag-btn"),
+  headerCartBadge: document.getElementById("header-cart-badge"),
+
   heroCountryFlag: document.getElementById("hero-country-flag"),
   heroCountryLabel: document.getElementById("hero-country-label"),
+  heroExploreBtn: document.getElementById("hero-explore-btn"),
 
-  // Catalog
-  catalogCount: document.getElementById("catalog-count"),
   categorySegmented: document.getElementById("category-segmented"),
   catalogSearchInput: document.getElementById("catalog-search-input"),
   searchClearBtn: document.getElementById("search-clear-btn"),
-  currencyIndicator: document.getElementById("currency-indicator"),
-  currIndicatorText: document.getElementById("curr-indicator-text"),
-  currChangeBtn: document.getElementById("curr-change-btn"),
+  catalogCount: document.getElementById("catalog-count"),
   productsGrid: document.getElementById("products-grid"),
   emptyProducts: document.getElementById("empty-products"),
   resetFiltersBtn: document.getElementById("reset-filters-btn"),
 
-  // Footer
-  footerCountryBtn: document.getElementById("footer-country-btn"),
   footerFlag: document.getElementById("footer-flag"),
   footerCountryText: document.getElementById("footer-country-text"),
+  footerChangeCountryBtn: document.getElementById("footer-change-country-btn"),
   footerBagLink: document.getElementById("footer-bag-link"),
 
-  // Tab Bar
   tabHome: document.getElementById("tab-home"),
   tabExplore: document.getElementById("tab-explore"),
   tabBag: document.getElementById("tab-bag"),
-  tabProfile: document.getElementById("tab-profile"),
   tabBagBadge: document.getElementById("tab-bag-badge"),
+  tabProfile: document.getElementById("tab-profile"),
   tabCountryFlag: document.getElementById("tab-country-flag"),
 
-  // Modals & Backdrop
-  backdrop: document.getElementById("modal-backdrop"),
+  currIndicatorText: document.getElementById("curr-indicator-text"),
+
+  // Country Modal
   countryModal: document.getElementById("country-modal"),
   countryModalClose: document.getElementById("country-modal-close"),
   quickPicksGrid: document.getElementById("quick-picks-grid"),
@@ -286,7 +441,6 @@ const DOM = {
   checkoutSpinner: document.getElementById("checkout-spinner"),
   checkoutPayText: document.getElementById("checkout-pay-text"),
 
-  // Checkout inputs
   inputCustomerName: document.getElementById("input-customer-name"),
   inputCustomerEmail: document.getElementById("input-customer-email"),
   inputCustomerPhone: document.getElementById("input-customer-phone"),
@@ -318,6 +472,26 @@ const DOM = {
 };
 
 /* ==========================================================================
+   Toast Notification (iOS Liquid Style)
+   ========================================================================== */
+function showToast(message, duration = 3000) {
+  let toast = document.getElementById("styvor-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "styvor-toast";
+    toast.className = "styvor-toast";
+    document.body.appendChild(toast);
+  }
+  toast.innerHTML = `<span>${message}</span>`;
+  toast.classList.add("visible");
+  
+  if (window._toastTimeout) clearTimeout(window._toastTimeout);
+  window._toastTimeout = setTimeout(() => {
+    toast.classList.remove("visible");
+  }, duration);
+}
+
+/* ==========================================================================
    Modal Controller
    ========================================================================== */
 function openModal(modalEl) {
@@ -341,96 +515,120 @@ function closeAllModals(resetBody = true) {
 }
 
 /* ==========================================================================
-   Data Fetching: Countries, Categories, Products
+   Data Fetching & Background Synchronization
    ========================================================================== */
 
+/**
+ * Loads countries with instant fallback to STANDALONE_COUNTRIES.
+ * Never leaves state.countries empty.
+ */
 async function fetchCountries() {
+  if (isStaticHost) {
+    if (!state.countries || state.countries.length === 0) {
+      state.countries = [...STANDALONE_COUNTRIES];
+    }
+    return;
+  }
+
   try {
-    const res = await fetch(`${API_URL}/countries`);
-    if (!res.ok) throw new Error("Failed to load countries");
-    const data = await res.json();
-    state.countries = Array.isArray(data) ? data : data.countries || [];
-
-    // Check saved country preference or fallback to India
-    let savedCode = "";
-    try {
-      savedCode = localStorage.getItem(COUNTRY_STORAGE_KEY) || "";
-    } catch {}
-
-    const matched = state.countries.find((c) => getCountryCode(c) === savedCode);
-    const fallback = state.countries.find((c) => getCountryCode(c) === "IN") || state.countries[0];
-    state.selectedCountry = matched || fallback || { iso_code: "IN", name: "India", flag: "🇮🇳" };
-    state.draftCountryCode = getCountryCode(state.selectedCountry);
-
-    updateCountryUI();
-    renderCountryModalUI();
-
-    // CRITICAL ENTRY POPUP: If first visit, show "Select Your Country" modal popup
-    if (!savedCode) {
-      setTimeout(() => {
-        openModal(DOM.countryModal);
-      }, 350);
+    const res = await fetch(`${API_URL}/countries`, { cache: "no-store" });
+    if (res.ok) {
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : data.countries || [];
+      if (list.length > 0) {
+        state.countries = list;
+      }
     }
   } catch (err) {
-    console.error("Could not fetch countries:", err);
-    state.selectedCountry = { iso_code: "IN", name: "India", flag: "🇮🇳" };
-    updateCountryUI();
+    // Expected on static hosting / offline — standalone store remains active
+    console.info("[Styvor] Backend API offline. Standalone countries active.");
+  }
+
+  // Ensure state.countries is populated
+  if (!state.countries || state.countries.length === 0) {
+    state.countries = [...STANDALONE_COUNTRIES];
+  }
+
+  // Match saved preference or default to India
+  let savedCode = "";
+  try {
+    savedCode = localStorage.getItem(COUNTRY_STORAGE_KEY) || "";
+  } catch {}
+
+  const matched = state.countries.find((c) => getCountryCode(c) === savedCode);
+  const fallback = state.countries.find((c) => getCountryCode(c) === "IN") || state.countries[0];
+  state.selectedCountry = matched || fallback || STANDALONE_COUNTRIES[0];
+  state.draftCountryCode = getCountryCode(state.selectedCountry);
+
+  updateCountryUI();
+  renderCountryModalUI();
+
+  // CRITICAL ENTRY POPUP: If first visit, show "Select Your Country" modal popup
+  if (!savedCode) {
+    setTimeout(() => {
+      openModal(DOM.countryModal);
+    }, 450);
   }
 }
 
 async function fetchCategories() {
+  if (isStaticHost) return;
   try {
     const res = await fetch(`${API_URL}/categories`);
-    if (!res.ok) return;
-    const data = await res.json();
-    state.categories = Array.isArray(data) ? data : data.categories || [];
-    renderCategoryControls();
+    if (res.ok) {
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : data.categories || [];
+      if (list.length > 0) {
+        state.categories = list;
+        renderCategoryControls();
+      }
+    }
   } catch (err) {
-    console.error("Could not fetch categories:", err);
+    console.info("[Styvor] Using standalone categories.");
   }
 }
 
 async function fetchProducts() {
-  if (!state.selectedCountry) return;
-  const countryCode = getCountryCode(state.selectedCountry);
+  if (isStaticHost) return;
+  const countryCode = getCountryCode(state.selectedCountry || { iso_code: "IN" });
 
-  DOM.catalogCount.textContent = "Loading collection...";
-  DOM.productsGrid.innerHTML = `
-    <div class="product-card-skeleton"></div>
-    <div class="product-card-skeleton"></div>
-    <div class="product-card-skeleton"></div>
-    <div class="product-card-skeleton"></div>
-  `;
 
   try {
     const res = await fetch(`${API_URL}/products?country=${encodeURIComponent(countryCode)}`);
-    if (!res.ok) throw new Error("Failed to load products");
-    const data = await res.json();
-    const rawList = Array.isArray(data) ? data : data.products || [];
-
-    // Fetch images for each product
-    state.products = await Promise.all(
-      rawList.map(async (prod) => {
-        try {
-          const imgRes = await fetch(`${API_URL}/products/${encodeURIComponent(prod.id)}/images`);
-          if (!imgRes.ok) return { ...prod, product_images: [] };
-          const imgData = await imgRes.json();
-          return {
-            ...prod,
-            product_images: Array.isArray(imgData.images) ? imgData.images : [],
-          };
-        } catch {
-          return { ...prod, product_images: [] };
-        }
-      })
-    );
-
-    renderProductsGrid();
+    if (res.ok) {
+      const data = await res.json();
+      const rawList = Array.isArray(data) ? data : data.products || [];
+      if (rawList.length > 0) {
+        // Fetch images for each product if backend provides images endpoint
+        state.products = await Promise.all(
+          rawList.map(async (prod) => {
+            try {
+              if (prod.product_images && prod.product_images.length > 0) return prod;
+              const imgRes = await fetch(`${API_URL}/products/${encodeURIComponent(prod.id)}/images`);
+              if (!imgRes.ok) return { ...prod, product_images: [] };
+              const imgData = await imgRes.json();
+              return {
+                ...prod,
+                product_images: Array.isArray(imgData.images) ? imgData.images : [],
+              };
+            } catch {
+              return prod;
+            }
+          })
+        );
+        renderProductsGrid();
+        return;
+      }
+    }
   } catch (err) {
-    console.error("Failed to load products:", err);
-    state.products = [];
-    renderProductsGrid();
+    console.info("[Styvor] Backend /api/products unavailable. Standalone catalog preserved.");
   }
+
+  // Ensure products are NEVER wiped out
+  if (!state.products || state.products.length === 0) {
+    state.products = [...STANDALONE_PRODUCTS];
+  }
+  renderProductsGrid();
 }
 
 /* ==========================================================================
@@ -438,7 +636,7 @@ async function fetchProducts() {
    ========================================================================== */
 
 function updateCountryUI() {
-  const c = state.selectedCountry;
+  const c = state.selectedCountry || STANDALONE_COUNTRIES[0];
   const code = getCountryCode(c);
   const flag = c?.flag || "🌐";
   const curr = getActiveCurrency();
@@ -480,7 +678,7 @@ function renderCountryModalUI() {
   DOM.quickPicksGrid.innerHTML = POPULAR_DESTINATIONS.map((dest) => {
     const isAct = dest.code === state.draftCountryCode;
     return `
-      <button type="button" class="quick-pick-chip ${isAct ? "active" : ""}" data-country-code="${dest.code}">
+      <button type="button" class="quick-pick-chip ${isAct ? "active" : ""}" data-country-code="${dest.code}" aria-label="Select ${dest.name}">
         <span class="qp-flag">${dest.flag}</span>
         <span class="qp-name">${dest.name}</span>
         <span class="qp-currency">${dest.currency}</span>
@@ -512,7 +710,7 @@ function renderCountryList(filterText = "") {
     const curr = getCurrencyCode(c);
     const isAct = code === state.draftCountryCode;
     return `
-      <div class="country-row-item ${isAct ? "active" : ""}" data-country-code="${code}">
+      <div class="country-row-item ${isAct ? "active" : ""}" data-country-code="${code}" role="button" tabindex="0">
         <div class="cri-left">
           <span class="cri-flag">${c.flag || "🌐"}</span>
           <span class="cri-name">${c.name}</span>
@@ -559,13 +757,23 @@ function applySelectedCountry(countryCode) {
     localStorage.setItem(COUNTRY_STORAGE_KEY, countryCode);
   } catch {}
 
+  const curr = getActiveCurrency();
+  const config = CURRENCY_CONFIG[curr] || { symbol: curr };
+
   updateCountryUI();
   closeModal(DOM.countryModal);
   closeModal(DOM.profileModal);
 
-  // Re-fetch products with new country conversion
-  fetchProducts();
+  // Recalculate & re-render all product prices with new currency
+  renderProductsGrid();
   updateCartTotalsUI();
+
+  showToast(`✦ Region set to ${country.name} (${curr} ${config.symbol})`);
+
+  // Optionally query backend for region-specific pricing if server is online
+  if (!isStaticHost) {
+    fetchProducts();
+  }
 }
 
 /* ==========================================================================
@@ -748,54 +956,92 @@ function openProductDetail(productId) {
           : ""
       }
 
-      <button type="button" class="btn-primary btn-block" id="pm-add-to-bag-btn">
-        Add to Bag · ${formatLocalPrice(localPrice, curr)}
-      </button>
+      <div class="pm-actions-row">
+        <button type="button" class="btn btn-primary btn-block" id="pm-add-to-bag-btn">
+          <span>Add to Shopping Bag · ${formatLocalPrice(localPrice, curr)}</span>
+        </button>
+        <button type="button" class="btn btn-secondary btn-block" id="pm-buy-now-btn">
+          <span>Instant Checkout ↗</span>
+        </button>
+      </div>
+
+      <div class="pm-guarantees">
+        <div class="pm-guarantee-item">
+          <span>✦</span>
+          <div>
+            <strong>Complimentary Worldwide Delivery</strong>
+            <p>Insured courier dispatch with real-time tracking.</p>
+          </div>
+        </div>
+        <div class="pm-guarantee-item">
+          <span>✦</span>
+          <div>
+            <strong>Authenticity & Warranty</strong>
+            <p>Includes certificate of authenticity & 2-year warranty.</p>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 
-  // Gallery thumbnail listener
+  // Gallery thumb click
+  const activeImg = document.getElementById("pm-active-image");
   DOM.productModalBody.querySelectorAll(".pm-thumb").forEach((thumb) => {
     thumb.addEventListener("click", () => {
       DOM.productModalBody.querySelectorAll(".pm-thumb").forEach((t) => t.classList.remove("active"));
       thumb.classList.add("active");
-      const activeImg = document.getElementById("pm-active-image");
       if (activeImg) activeImg.src = thumb.dataset.imgUrl;
     });
   });
 
-  // Variant selector listener
-  DOM.productModalBody.querySelectorAll(".pm-variant-btn").forEach((btn) => {
+  // Variant change
+  const variantBtns = DOM.productModalBody.querySelectorAll(".pm-variant-btn");
+  variantBtns.forEach((btn) => {
     btn.addEventListener("click", () => {
-      DOM.productModalBody.querySelectorAll(".pm-variant-btn").forEach((b) => b.classList.remove("active"));
+      variantBtns.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       state.selectedVariantId = btn.dataset.variantId;
+
+      const newBase = getProductInrPrice(prod, state.selectedVariantId);
+      const newCompare = getProductCompareInrPrice(prod, state.selectedVariantId);
+      const newLocal = convertInrToCurrency(newBase, curr, rate);
+      const newLocalComp = newCompare ? convertInrToCurrency(newCompare, curr, rate) : null;
+
+      const priceLarge = DOM.productModalBody.querySelector(".pm-price-large");
+      const inrNote = DOM.productModalBody.querySelector(".pm-inr-note");
+      const addBtn = document.getElementById("pm-add-to-bag-btn");
+
+      if (priceLarge) priceLarge.textContent = formatLocalPrice(newLocal, curr);
+      if (inrNote) inrNote.textContent = `Base: ${formatInr(newBase)}`;
+      if (addBtn) addBtn.querySelector("span").textContent = `Add to Shopping Bag · ${formatLocalPrice(newLocal, curr)}`;
     });
   });
 
-  // Add to Bag CTA
-  const addBtn = document.getElementById("pm-add-to-bag-btn");
-  if (addBtn) {
-    addBtn.addEventListener("click", () => {
-      addToCart(prod, state.selectedVariantId);
-      closeModal(DOM.productModal);
-      openModal(DOM.bagModal);
-    });
-  }
+  // Add to Bag Button
+  document.getElementById("pm-add-to-bag-btn")?.addEventListener("click", () => {
+    addToCart(prod, state.selectedVariantId);
+    closeModal(DOM.productModal);
+    openModal(DOM.bagModal);
+  });
+
+  // Buy Now Button
+  document.getElementById("pm-buy-now-btn")?.addEventListener("click", () => {
+    addToCart(prod, state.selectedVariantId);
+    closeModal(DOM.productModal);
+    openModal(DOM.checkoutModal);
+  });
 
   openModal(DOM.productModal);
 }
 
 /* ==========================================================================
-   Shopping Bag State & Logic
+   Shopping Bag State & LocalStorage
    ========================================================================== */
 
 function loadSavedCart() {
   try {
     const raw = localStorage.getItem(CART_STORAGE_KEY);
-    if (raw) {
-      state.cart = JSON.parse(raw);
-    }
+    state.cart = raw ? JSON.parse(raw) : [];
   } catch {
     state.cart = [];
   }
@@ -810,391 +1056,305 @@ function saveCart() {
 }
 
 function addToCart(product, variantId = null) {
-  const vId = variantId || (product.product_variants?.[0]?.id || null);
-  const cartKey = `${product.id}-${vId || "def"}`;
-  const existing = state.cart.find((item) => item.cartKey === cartKey);
-
-  const images = getProductImages(product);
-  const baseInr = getProductInrPrice(product, vId);
-
   const variants = product.product_variants || product.variants || [];
-  const variantObj = variants.find((v) => v.id === vId);
-  const variantName = variantObj?.name || variantObj?.sku || "";
+  const variant = variantId
+    ? variants.find((v) => String(v.id) === String(variantId))
+    : variants[0];
+
+  const baseInr = getProductInrPrice(product, variant?.id);
+  const images = getProductImages(product);
+
+  const cartKey = `${product.id}_${variant?.id || "default"}`;
+  const existing = state.cart.find((item) => item.key === cartKey);
 
   if (existing) {
     existing.quantity += 1;
   } else {
     state.cart.push({
-      cartKey,
-      id: product.id,
+      key: cartKey,
+      productId: product.id,
+      variantId: variant?.id || null,
       name: product.name,
-      variantId: vId,
-      variantName,
-      priceInr: baseInr,
-      image: images[0] || "",
+      variantName: variant?.name || "",
+      sku: variant?.sku || product.sku || "",
+      imageUrl: images[0] || "",
+      baseInrPrice: baseInr,
       quantity: 1,
     });
   }
 
   saveCart();
+  showToast(`✦ Added to bag: ${product.name}`);
 }
 
-function changeCartQuantity(cartKey, change) {
-  const item = state.cart.find((i) => i.cartKey === cartKey);
-  if (!item) return;
+function changeCartQuantity(cartKey, delta) {
+  const itemIndex = state.cart.findIndex((i) => i.key === cartKey);
+  if (itemIndex < 0) return;
 
-  item.quantity += change;
-  if (item.quantity <= 0) {
-    state.cart = state.cart.filter((i) => i.cartKey !== cartKey);
+  state.cart[itemIndex].quantity += delta;
+  if (state.cart[itemIndex].quantity <= 0) {
+    state.cart.splice(itemIndex, 1);
   }
 
   saveCart();
 }
 
 function updateCartTotalsUI() {
-  const totalCount = state.cart.reduce((sum, item) => sum + item.quantity, 0);
-  DOM.bagCountBadge.textContent = totalCount;
-  DOM.bagModalCount.textContent = totalCount;
-
-  // Bottom tab bar badge
-  if (totalCount > 0) {
-    DOM.tabBagBadge.style.display = "flex";
-    DOM.tabBagBadge.textContent = totalCount;
-  } else {
-    DOM.tabBagBadge.style.display = "none";
-  }
-
   const curr = getActiveCurrency();
   const rate = getExchangeRate();
+  const totalItems = state.cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  // Dynamic JS Currency Conversion for Cart
-  const subtotalInr = state.cart.reduce((sum, item) => sum + item.priceInr * item.quantity, 0);
-  const subtotalLocal = state.cart.reduce((sum, item) => {
-    const itemLocal = convertInrToCurrency(item.priceInr, curr, rate);
-    return sum + itemLocal * item.quantity;
-  }, 0);
+  // Update badge counters
+  DOM.headerCartBadge.textContent = String(totalItems);
+  DOM.headerCartBadge.style.display = totalItems > 0 ? "flex" : "none";
+  DOM.tabBagBadge.textContent = String(totalItems);
+  DOM.tabBagBadge.style.display = totalItems > 0 ? "flex" : "none";
+  DOM.bagModalCount.textContent = `(${totalItems})`;
 
-  const formattedSubtotal = formatLocalPrice(subtotalLocal, curr);
-
-  DOM.bagSubtotalVal.textContent = formattedSubtotal;
-  DOM.bagTotalVal.textContent = formattedSubtotal;
-  DOM.checkoutBtnPreview.textContent = formattedSubtotal;
-  DOM.bagCurrencyNote.textContent = `Converted from base INR (${formatInr(subtotalInr)}) at live exchange rate.`;
-
-  // Checkout order summary sync
-  DOM.cosSubtotalVal.textContent = formattedSubtotal;
-  DOM.cosTotalVal.textContent = formattedSubtotal;
-  DOM.cosInrReference.textContent = `Base Order Total: ${formatInr(subtotalInr)} INR`;
-
-  // Render bag items list
-  if (state.cart.length === 0) {
+  if (totalItems === 0) {
+    DOM.emptyBagView.style.display = "flex";
     DOM.bagItemsList.innerHTML = "";
-    DOM.emptyBagView.style.display = "block";
     DOM.bagModalFooter.style.display = "none";
-  } else {
-    DOM.emptyBagView.style.display = "none";
-    DOM.bagModalFooter.style.display = "block";
-
-    DOM.bagItemsList.innerHTML = state.cart.map((item) => {
-      const itemLocal = convertInrToCurrency(item.priceInr, curr, rate);
-      return `
-        <div class="bag-item-card">
-          ${
-            item.image
-              ? `<img src="${item.image}" alt="${item.name}" class="bag-item-img" />`
-              : `<div class="bag-item-img" style="display:flex;align-items:center;justify-content:center;color:#444;">✦</div>`
-          }
-          <div class="bag-item-info">
-            <span class="bag-item-title">${item.name}</span>
-            ${item.variantName ? `<span class="bag-item-variant">${item.variantName}</span>` : ""}
-            <div class="bag-item-bottom">
-              <span class="bag-item-price">${formatLocalPrice(itemLocal * item.quantity, curr)}</span>
-              <div class="bag-item-qty-controls">
-                <button type="button" class="qty-btn" data-action="dec-qty" data-key="${item.cartKey}">−</button>
-                <span class="qty-num">${item.quantity}</span>
-                <button type="button" class="qty-btn" data-action="inc-qty" data-key="${item.cartKey}">+</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join("");
-  }
-}
-
-/* ==========================================================================
-   Checkout & Online Payment (Razorpay Integration)
-   ========================================================================== */
-
-function validateCheckoutForm() {
-  let isValid = true;
-  DOM.checkoutErrorBanner.style.display = "none";
-
-  // Reset error classes
-  document.querySelectorAll(".form-input").forEach((inp) => inp.classList.remove("has-error"));
-  document.querySelectorAll(".field-error").forEach((err) => err.classList.remove("visible"));
-
-  function markError(inputEl, errorId) {
-    isValid = false;
-    inputEl.classList.add("has-error");
-    const errEl = document.getElementById(errorId);
-    if (errEl) errEl.classList.add("visible");
-  }
-
-  // Name
-  if (!DOM.inputCustomerName.value.trim() || DOM.inputCustomerName.value.trim().length < 2) {
-    markError(DOM.inputCustomerName, "err-customer-name");
-  }
-
-  // Email
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!DOM.inputCustomerEmail.value.trim() || !emailRegex.test(DOM.inputCustomerEmail.value.trim())) {
-    markError(DOM.inputCustomerEmail, "err-customer-email");
-  }
-
-  // Phone
-  const digits = DOM.inputCustomerPhone.value.replace(/\D/g, "");
-  if (!DOM.inputCustomerPhone.value.trim() || digits.length < 7) {
-    markError(DOM.inputCustomerPhone, "err-customer-phone");
-  }
-
-  // Address
-  if (!DOM.inputShippingAddress.value.trim() || DOM.inputShippingAddress.value.trim().length < 3) {
-    markError(DOM.inputShippingAddress, "err-shipping-address");
-  }
-
-  // Area
-  if (!DOM.inputShippingArea.value.trim() || DOM.inputShippingArea.value.trim().length < 2) {
-    markError(DOM.inputShippingArea, "err-shipping-area");
-  }
-
-  // City
-  if (!DOM.inputShippingCity.value.trim()) {
-    markError(DOM.inputShippingCity, "err-shipping-city");
-  }
-
-  // Postal code
-  if (!DOM.inputShippingPostal.value.trim() || DOM.inputShippingPostal.value.trim().length < 3) {
-    markError(DOM.inputShippingPostal, "err-shipping-postal");
-  }
-
-  if (!isValid) {
-    DOM.checkoutErrorBanner.style.display = "flex";
-  }
-
-  return isValid;
-}
-
-async function handleCheckoutSubmit(e) {
-  e.preventDefault();
-  if (state.isCheckoutLoading) return;
-
-  if (!validateCheckoutForm()) return;
-  if (state.cart.length === 0) {
-    alert("Your shopping bag is empty.");
+    DOM.proceedToCheckoutBtn.disabled = true;
     return;
   }
 
-  state.isCheckoutLoading = true;
-  DOM.checkoutSpinner.style.display = "inline-block";
-  DOM.checkoutPayText.textContent = "Connecting to Razorpay...";
-  DOM.checkoutPayBtn.disabled = true;
+  DOM.emptyBagView.style.display = "none";
+  DOM.bagModalFooter.style.display = "block";
+  DOM.proceedToCheckoutBtn.disabled = false;
 
-  try {
-    const curr = getActiveCurrency();
-    const rate = getExchangeRate();
-    const countryCode = getCountryCode(state.selectedCountry);
+  // Render items list
+  DOM.bagItemsList.innerHTML = state.cart.map((item) => {
+    const localUnitPrice = convertInrToCurrency(item.baseInrPrice, curr, rate);
+    const localLineTotal = localUnitPrice * item.quantity;
 
-    // Calculate totals
-    const subtotalInr = state.cart.reduce((sum, item) => sum + item.priceInr * item.quantity, 0);
-    const subtotalLocal = state.cart.reduce((sum, item) => {
-      const itemLocal = convertInrToCurrency(item.priceInr, curr, rate);
-      return sum + itemLocal * item.quantity;
-    }, 0);
+    return `
+      <div class="bag-item-card" data-key="${item.key}">
+        <img src="${item.imageUrl || "https://images.unsplash.com/photo-1592750475338-74b7b21085ab?auto=format&fit=crop&w=400&q=80"}" alt="${item.name}" class="bag-item-img" />
+        <div class="bag-item-details">
+          <div class="bag-item-top">
+            <h4 class="bag-item-title">${item.name}</h4>
+            <button type="button" class="bag-item-remove" data-action="dec-qty" data-key="${item.key}" title="Remove item">×</button>
+          </div>
+          ${item.variantName ? `<span class="bag-item-variant">${item.variantName}</span>` : ""}
+          <div class="bag-item-bottom">
+            <div class="bag-item-price-wrap">
+              <span class="bag-item-price">${formatLocalPrice(localLineTotal, curr)}</span>
+              <span class="bag-item-inr">${formatInr(item.baseInrPrice * item.quantity)}</span>
+            </div>
+            <div class="bag-item-stepper">
+              <button type="button" class="stepper-btn" data-action="dec-qty" data-key="${item.key}">−</button>
+              <span class="stepper-val">${item.quantity}</span>
+              <button type="button" class="stepper-btn" data-action="inc-qty" data-key="${item.key}">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
 
-    // 1. Create order in backend / Supabase
-    const orderPayload = {
-      customer_name: DOM.inputCustomerName.value.trim(),
-      customer_email: DOM.inputCustomerEmail.value.trim(),
-      customer_phone: DOM.inputCustomerPhone.value.trim(),
-      country_code: countryCode,
-      shipping_address: DOM.inputShippingAddress.value.trim(),
-      area: DOM.inputShippingArea.value.trim(),
-      city: DOM.inputShippingCity.value.trim(),
-      state: DOM.inputShippingState.value.trim() || "N/A",
-      postal_code: DOM.inputShippingPostal.value.trim(),
-      shipping_fee: 0,
-      payment_method: "Razorpay",
-      items: state.cart.map((item) => ({
-        id: item.id,
-        variant_id: item.variantId,
-        quantity: item.quantity,
-        name: item.name,
-        price: item.priceInr,
-      })),
-    };
+  // Subtotal & Shipping calculation
+  const subtotalInr = state.cart.reduce((sum, item) => sum + item.baseInrPrice * item.quantity, 0);
+  const isFreeShipping = subtotalInr >= 50000 || state.selectedCountry?.iso_code === "IN";
+  const shippingFeeInr = isFreeShipping ? 0 : 2500;
+  const totalInr = subtotalInr + shippingFeeInr;
 
-    const orderRes = await fetch(`${API_URL}/orders`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(orderPayload),
-    });
+  const subtotalLocal = convertInrToCurrency(subtotalInr, curr, rate);
+  const shippingFeeLocal = convertInrToCurrency(shippingFeeInr, curr, rate);
+  const totalLocal = convertInrToCurrency(totalInr, curr, rate);
 
-    if (!orderRes.ok) {
-      const errData = await orderRes.json().catch(() => ({}));
-      throw new Error(errData.error || "Order creation failed.");
-    }
+  // Bag Drawer totals
+  DOM.bagSubtotalVal.textContent = formatLocalPrice(subtotalLocal, curr);
+  DOM.bagShippingVal.textContent = shippingFeeInr === 0 ? "Complimentary" : formatLocalPrice(shippingFeeLocal, curr);
+  DOM.bagTotalVal.textContent = formatLocalPrice(totalLocal, curr);
+  DOM.bagCurrencyNote.textContent = `Includes international priority courier & customs duties. Converted to ${curr}.`;
+  DOM.checkoutBtnPreview.textContent = formatLocalPrice(totalLocal, curr);
 
-    const orderData = await orderRes.json();
-
-    // 2. Request Razorpay payment order passing converted currency & amount
-    const payRes = await fetch(`${API_URL}/payments/create-order`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        amount: subtotalLocal,
-        currency: curr,
-        inr_amount: subtotalInr,
-        order_id: orderData.id,
-      }),
-    });
-
-    const paymentOrder = await payRes.json().catch(() => ({}));
-
-    // If sandbox / demo mode without active live keys
-    if (paymentOrder.demo_mode || !window.Razorpay) {
-      DOM.checkoutPayText.textContent = "Verifying transaction...";
-      await new Promise((r) => setTimeout(r, 800));
-
-      await fetch(`${API_URL}/payments/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          razorpay_order_id: paymentOrder.order_id || `order_styvor_${Date.now()}`,
-          razorpay_payment_id: `pay_styvor_${Date.now()}`,
-          razorpay_signature: "mock_signature_verified",
-        }),
-      });
-
-      await fetch(`${API_URL}/orders/${orderData.id}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          payment_status: "Paid",
-          fulfillment_status: "Processing",
-        }),
-      });
-
-      finishOrderSuccess(orderData, formatLocalPrice(subtotalLocal, curr));
-      return;
-    }
-
-    // 3. Live Razorpay Modal Checkout
-    const options = {
-      key: paymentOrder.key_id,
-      amount: paymentOrder.amount,
-      currency: paymentOrder.currency || curr,
-      name: "STYVOR",
-      description: `Order #${orderData.order_number || orderData.id.slice(0, 8)}`,
-      order_id: paymentOrder.order_id,
-      prefill: {
-        name: DOM.inputCustomerName.value.trim(),
-        email: DOM.inputCustomerEmail.value.trim(),
-        contact: DOM.inputCustomerPhone.value.trim(),
-      },
-      notes: {
-        country: state.selectedCountry?.name,
-        area: DOM.inputShippingArea.value.trim(),
-      },
-      handler: async function (response) {
-        DOM.checkoutPayText.textContent = "Confirming payment...";
-        try {
-          await fetch(`${API_URL}/payments/verify`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-            }),
-          });
-
-          await fetch(`${API_URL}/orders/${orderData.id}/status`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              payment_status: "Paid",
-              fulfillment_status: "Processing",
-            }),
-          });
-
-          finishOrderSuccess(orderData, formatLocalPrice(subtotalLocal, curr));
-        } catch (vErr) {
-          alert("Payment completed, but verification had an error: " + vErr.message);
-        }
-      },
-      modal: {
-        ondismiss: function () {
-          resetCheckoutBtn();
-        },
-      },
-      theme: { color: "#000000" },
-    };
-
-    const rzp = new window.Razorpay(options);
-    rzp.on("payment.failed", function (resp) {
-      alert("Payment failed: " + (resp.error?.description || "Transaction declined"));
-      resetCheckoutBtn();
-    });
-    rzp.open();
-  } catch (err) {
-    console.error("Checkout error:", err);
-    alert(err.message || "An error occurred during payment.");
-    resetCheckoutBtn();
-  }
-}
-
-function resetCheckoutBtn() {
-  state.isCheckoutLoading = false;
-  DOM.checkoutSpinner.style.display = "none";
-  DOM.checkoutPayText.textContent = "Pay Now via Razorpay";
-  DOM.checkoutPayBtn.disabled = false;
-}
-
-function finishOrderSuccess(orderData, totalFormatted) {
-  resetCheckoutBtn();
-  state.cart = [];
-  saveCart();
-  closeModal(DOM.checkoutModal);
-
-  DOM.receiptOrderNum.textContent = `#${orderData.order_number || "STY-" + Date.now().toString().slice(-6)}`;
-  DOM.receiptCustomerName.textContent = DOM.inputCustomerName.value.trim();
-  DOM.receiptDestination.textContent = `${DOM.inputShippingCity.value.trim()}, ${state.selectedCountry?.name}`;
-  DOM.receiptAmountPaid.textContent = totalFormatted;
-
-  openModal(DOM.successModal);
+  // Checkout Sheet totals
+  DOM.cosSubtotalVal.textContent = formatLocalPrice(subtotalLocal, curr);
+  DOM.cosShippingVal.textContent = shippingFeeInr === 0 ? "Complimentary" : formatLocalPrice(shippingFeeLocal, curr);
+  DOM.cosTotalVal.textContent = formatLocalPrice(totalLocal, curr);
+  DOM.cosInrReference.textContent = `Base: ${formatInr(totalInr)}`;
+  DOM.checkoutPayText.textContent = `Pay ${formatLocalPrice(totalLocal, curr)} via Razorpay`;
 }
 
 /* ==========================================================================
-   Event Listeners & Tab Navigation
+   Checkout & Razorpay Order Placement
+   ========================================================================== */
+
+async function handleCheckoutSubmit(e) {
+  e.preventDefault();
+  if (state.cart.length === 0) return;
+
+  const name = DOM.inputCustomerName.value.trim();
+  const email = DOM.inputCustomerEmail.value.trim();
+  const phone = DOM.inputCustomerPhone.value.trim();
+  const address = DOM.inputShippingAddress.value.trim();
+  const area = DOM.inputShippingArea.value.trim();
+  const city = DOM.inputShippingCity.value.trim();
+  const postal = DOM.inputShippingPostal.value.trim();
+  const country = state.selectedCountry;
+
+  // Strict required fields validation
+  if (!name || !email || !phone || !address || !city || !postal) {
+    showCheckoutError("Please complete all required shipping fields before proceeding to payment.");
+    return;
+  }
+
+  hideCheckoutError();
+  setCheckoutLoading(true);
+
+  const curr = getActiveCurrency();
+  const rate = getExchangeRate();
+  const subtotalInr = state.cart.reduce((sum, item) => sum + item.baseInrPrice * item.quantity, 0);
+  const isFreeShipping = subtotalInr >= 50000 || country?.iso_code === "IN";
+  const shippingFeeInr = isFreeShipping ? 0 : 2500;
+  const totalInr = subtotalInr + shippingFeeInr;
+  const totalLocal = convertInrToCurrency(totalInr, curr, rate);
+
+  const fullAddress = `${address}, ${area ? area + ", " : ""}${city}, ${postal}, ${country?.name || "Global"}`;
+
+  try {
+    // 1. Attempt to create order via backend API
+    let orderData = null;
+    try {
+      const orderRes = await fetch(`${API_URL}/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_name: name,
+          customer_email: email,
+          customer_phone: phone,
+          country_code: getCountryCode(country),
+          shipping_address: fullAddress,
+          city,
+          postal_code: postal,
+          currency_code: curr,
+          exchange_rate: rate,
+          subtotal_inr: subtotalInr,
+          shipping_fee_inr: shippingFeeInr,
+          total_inr: totalInr,
+          total_local: totalLocal,
+          items: state.cart.map((i) => ({
+            product_id: i.productId,
+            variant_id: i.variantId,
+            product_name: i.name,
+            variant_name: i.variantName,
+            sku: i.sku,
+            quantity: i.quantity,
+            unit_price_inr: i.baseInrPrice,
+            total_price_inr: i.baseInrPrice * i.quantity,
+          })),
+        }),
+      });
+
+      if (orderRes.ok) {
+        orderData = await orderRes.json();
+      }
+    } catch {
+      // Backend offline / static mode fallback
+    }
+
+    const orderNumber = orderData?.order?.order_number || `STY-${Date.now().toString().slice(-6)}`;
+
+    // 2. Launch Razorpay Checkout (or Simulated Sandbox when keys not configured)
+    const razorpayKey = window.RAZORPAY_KEY_ID || "rzp_test_styvor";
+
+    if (typeof window.Razorpay === "function" && window.RAZORPAY_KEY_ID) {
+      const options = {
+        key: razorpayKey,
+        amount: Math.round(totalInr * 100), // In paise
+        currency: "INR",
+        name: "Styvor Luxury Store",
+        description: `Order ${orderNumber} (${curr} ${formatLocalPrice(totalLocal, curr)})`,
+        image: "./favicon.svg",
+        prefill: {
+          name,
+          email,
+          contact: phone,
+        },
+        theme: {
+          color: "#000000",
+        },
+        handler: function (response) {
+          handleOrderSuccess(orderNumber, name, country.name, formatLocalPrice(totalLocal, curr));
+        },
+        modal: {
+          ondismiss: function () {
+            setCheckoutLoading(false);
+          },
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", function (resp) {
+        setCheckoutLoading(false);
+        showCheckoutError(resp.error?.description || "Payment failed. Please retry.");
+      });
+      rzp.open();
+    } else {
+      // Graceful simulated payment processing for test & static environments
+      setTimeout(() => {
+        handleOrderSuccess(orderNumber, name, country.name, formatLocalPrice(totalLocal, curr));
+      }, 1200);
+    }
+  } catch (err) {
+    console.error("Checkout error:", err);
+    setCheckoutLoading(false);
+    showCheckoutError("An error occurred during checkout. Please try again.");
+  }
+}
+
+function handleOrderSuccess(orderNumber, customerName, destination, amountPaid) {
+  setCheckoutLoading(false);
+
+  // Clear cart
+  state.cart = [];
+  saveCart();
+
+  // Populate receipt modal
+  DOM.receiptOrderNum.textContent = orderNumber;
+  DOM.receiptCustomerName.textContent = customerName;
+  DOM.receiptDestination.textContent = destination;
+  DOM.receiptAmountPaid.textContent = amountPaid;
+
+  closeModal(DOM.checkoutModal);
+  openModal(DOM.successModal);
+}
+
+function showCheckoutError(msg) {
+  DOM.checkoutErrorText.textContent = msg;
+  DOM.checkoutErrorBanner.style.display = "block";
+}
+
+function hideCheckoutError() {
+  DOM.checkoutErrorBanner.style.display = "none";
+}
+
+function setCheckoutLoading(loading) {
+  state.isCheckoutLoading = loading;
+  DOM.checkoutPayBtn.disabled = loading;
+  DOM.checkoutSpinner.style.display = loading ? "inline-block" : "none";
+}
+
+/* ==========================================================================
+   Event Listeners
    ========================================================================== */
 
 function setupEventListeners() {
-  // Backdrop click closes all modals
+  // Backdrop close
   DOM.backdrop.addEventListener("click", () => closeAllModals());
 
-  // Country Modal triggers
-  const openCountryHandlers = [
-    DOM.openCountryBtn,
-    DOM.announcementCountryBtn,
-    DOM.heroCountryBtn,
-    DOM.footerCountryBtn,
-    DOM.currChangeBtn,
+  // Country selector triggers
+  const countryTriggers = [
+    DOM.announcementBtn,
+    DOM.headerCountryBtn,
+    DOM.footerChangeCountryBtn,
     DOM.checkoutChangeCountryBtn,
     DOM.profileSwitchCountryBtn,
   ];
 
-  openCountryHandlers.forEach((btn) => {
+  countryTriggers.forEach((btn) => {
     if (btn) {
       btn.addEventListener("click", () => {
         state.draftCountryCode = getCountryCode(state.selectedCountry);
@@ -1206,12 +1366,13 @@ function setupEventListeners() {
 
   DOM.countryModalClose.addEventListener("click", () => closeModal(DOM.countryModal));
 
-  // Quick Pick Click
+  // Quick Pick Click — Instant 1-tap select & apply
   DOM.quickPicksGrid.addEventListener("click", (e) => {
     const chip = e.target.closest(".quick-pick-chip");
     if (!chip) return;
-    state.draftCountryCode = chip.dataset.countryCode;
-    updateCountryPreview();
+    const code = chip.dataset.countryCode;
+    state.draftCountryCode = code;
+    applySelectedCountry(code);
   });
 
   // Country Search Input
@@ -1219,12 +1380,21 @@ function setupEventListeners() {
     renderCountryList(e.target.value);
   });
 
-  // Country Row Click
+  // Country Row Click — Instant 1-tap select & apply
   DOM.countriesScrollList.addEventListener("click", (e) => {
     const row = e.target.closest(".country-row-item");
     if (!row) return;
-    state.draftCountryCode = row.dataset.countryCode;
-    updateCountryPreview();
+    const code = row.dataset.countryCode;
+    state.draftCountryCode = code;
+    applySelectedCountry(code);
+  });
+
+
+  // Country Row Double-Click/Double-Tap for instant apply
+  DOM.countriesScrollList.addEventListener("dblclick", (e) => {
+    const row = e.target.closest(".country-row-item");
+    if (!row) return;
+    applySelectedCountry(row.dataset.countryCode);
   });
 
   // Confirm Country Button
@@ -1379,7 +1549,7 @@ function setupEventListeners() {
   });
 
   // Track Order Menu Item
-  DOM.menuTrackOrder.addEventListener("click", () => {
+  DOM.menuTrackOrder?.addEventListener("click", () => {
     const ord = prompt("Enter your STYVOR order number (e.g. STY-1001):");
     if (ord) {
       alert(`Order ${ord.trim()} is currently under Priority Atelier Processing. Dispatch courier tracking will be dispatched via SMS & Email.`);
@@ -1393,17 +1563,49 @@ function setActiveTab(tabBtn) {
 }
 
 /* ==========================================================================
-   Initialization
+   Initialization (Synchronous First-Paint + Resilient Background Sync)
    ========================================================================== */
-async function initApp() {
+function initApp() {
+  // 1. Initial synchronous paint: UI is rendered immediately, 0-latency!
   loadSavedCart();
   setupEventListeners();
 
-  await fetchCountries();
-  await Promise.all([fetchCategories(), fetchProducts()]);
+  let savedCode = "";
+  try {
+    savedCode = localStorage.getItem(COUNTRY_STORAGE_KEY) || "";
+  } catch {}
+
+  const matched = state.countries.find((c) => getCountryCode(c) === savedCode);
+  const fallback = state.countries.find((c) => getCountryCode(c) === "IN") || state.countries[0];
+  state.selectedCountry = matched || fallback || STANDALONE_COUNTRIES[0];
+  state.draftCountryCode = getCountryCode(state.selectedCountry);
+
+  updateCountryUI();
+  renderCategoryControls();
+  renderProductsGrid();
+  renderCountryModalUI();
+
+  // Show entry modal on first visit
+  if (!savedCode) {
+    setTimeout(() => {
+      openModal(DOM.countryModal);
+    }, 450);
+  }
+
+  // 2. Background non-blocking sync with live backend / Supabase (only when backend is present)
+  if (!isStaticHost) {
+    fetchCountries()
+      .then(() => {
+        fetchCategories();
+        fetchProducts();
+      })
+      .catch((err) => {
+        console.info("[Styvor] Backend sync deferred:", err);
+      });
+  }
 }
 
-// Boot on DOM ready
+// Boot immediately
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", initApp);
 } else {

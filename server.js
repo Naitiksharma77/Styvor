@@ -40,36 +40,27 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-const isProduction = process.env.NODE_ENV === "production";
-const distPath = path.resolve(__dirname, "frontend/dist");
+const frontendPath = path.resolve(__dirname, "frontend");
 const adminDistPath = path.resolve(__dirname, "admin/dist");
 
-// Seamlessly serve Admin Dashboard from admin/dist
+// Serve Admin Dashboard from admin/dist
 app.use("/admin", express.static(adminDistPath));
 app.use("/admin", (req, res) => {
   res.sendFile(path.resolve(adminDistPath, "index.html"));
 });
 
-if (!isProduction) {
-  const { createServer } = await import("vite");
-  const vite = await createServer({
-    server: {
-      middlewareMode: true,
-      host: "0.0.0.0",
-      allowedHosts: true,
-    },
-    appType: "spa",
-    root: path.resolve(__dirname, "frontend"),
-  });
-  app.use(vite.middlewares);
-} else {
-  app.use(express.static(distPath));
-  app.get("*", (req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
-  });
-}
+// High-speed, lightweight static serving of pure HTML/CSS/JS frontend
+app.use(express.static(frontendPath));
+app.use(express.static(__dirname));
 
-const PORT = Number(process.env.PORT) || 3000;
+// Store fallback
+app.use((req, res) => {
+  res.sendFile(path.resolve(frontendPath, "index.html"));
+});
+
+
+
+const PORT = 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`[Styvor] Store & API server running at http://0.0.0.0:${PORT}`);
 });
